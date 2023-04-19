@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: MIT
 
 """
-Module for downloading and curating data from ECMWFs ERA5 dataset (via CDS).
+Module for downloading and curating data from ECMWFs ERA5 dataset from transition zero zarr archive.
 
 For further reference see
 https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation
