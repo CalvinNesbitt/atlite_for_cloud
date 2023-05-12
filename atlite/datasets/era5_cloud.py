@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: MIT
 
 """
-Module for downloading and curating data from ECMWFs ERA5 dataset (via CDS).
+Module for downloading and curating data from ECMWFs ERA5 dataset from transition zero zarr archive.
 
 For further reference see
 https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation
@@ -14,14 +14,10 @@ https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation
 import logging
 import os
 import warnings
-import weakref
-from tempfile import mkstemp
 
-import cdsapi
 import numpy as np
 import pandas as pd
 import xarray as xr
-from numpy import atleast_1d
 
 from atlite.gis import maybe_swap_spatial_dims
 from atlite.pv.solar_position import SolarPosition
@@ -44,18 +40,7 @@ logger = logging.getLogger(__name__)
 crs = 4326
 
 features = {
-    "height": ["height"],
     "wind": ["wnd100m", "wnd_azimuth", "roughness"],
-    "influx": [
-        "influx_toa",
-        "influx_direct",
-        "influx_diffuse",
-        "albedo",
-        "solar_altitude",
-        "solar_azimuth",
-    ],
-    "temperature": ["temperature", "soil temperature"],
-    "runoff": ["runoff"],
 }
 
 static_features = {"height"}
@@ -111,9 +96,9 @@ def get_data_wind(retrieval_params):
     """
     ds = retrieve_data(
         variable=[
-            "100m_u_component_of_wind",
-            "100m_v_component_of_wind",
-            "forecast_surface_roughness",
+            "u100",
+            "v100",
+            "fsr",
         ],
         **retrieval_params,
     )
@@ -303,58 +288,22 @@ def noisy_unlink(path):
 
 def retrieve_data(product, chunks=None, tmpdir=None, lock=None, **updates):
     """
-    Download data like ERA5 from the Climate Data Store (CDS).
-
-    If you want to track the state of your request go to
-    https://cds.climate.copernicus.eu/cdsapp#!/yourrequests
+    Load data from TZ google cloud Zarr archive.
     """
-    request = {"product_type": "reanalysis", "format": "netcdf"}
+    request = {'zarr_archive_path': 'gs://metdata-era5/atlite-wind-2013/zarr/'}
     request.update(updates)
 
     assert {"year", "month", "variable"}.issubset(
         request
     ), "Need to specify at least 'variable', 'year' and 'month'"
 
-    key = f"{str(os.environ['CDSAPI_USER1'])}:{str(os.environ['CDSAPI_KEY1'])}"
-    client = cdsapi.Client(
-        key=key, info_callback=logger.debug, debug=logging.DEBUG >= logging.root.level
-    )
-    result = client.retrieve(product, request)
-
-    if lock is None:
-        lock = nullcontext()
-
-    with lock:
-        fd, target = mkstemp(suffix=".nc", dir=tmpdir)
-        os.close(fd)
-
-        # Inform user about data being downloaded as "* variable (year-month)"
-        timestr = f"{request['year']}-{request['month']}"
-        variables = atleast_1d(request["variable"])
-        varstr = "\n\t".join([f"{v} ({timestr})" for v in variables])
-        logger.info(f"CDS: Downloading variables\n\t{varstr}\n")
-        result.download(target)
-
-    ds = xr.open_dataset(target, chunks=chunks or {})
-    if tmpdir is None:
-        logger.debug(f"Adding finalizer for {target}")
-        weakref.finalize(ds._file_obj._manager, noisy_unlink, target)
-
-    # Remove default encoding we get from CDSAPI, which can lead to NaN values after loading with subsequent
-    # saving due to how xarray handles netcdf compression (only float encoded as short int seem affected)
-    # Fixes issue by keeping "float32" encoded as "float32" instead of internally saving as "short int", see:
-    # https://stackoverflow.com/questions/75755441/why-does-saving-to-netcdf-without-encoding-change-some-values-to-nan
-    # and hopefully fixed soon (could then remove), see https://github.com/pydata/xarray/issues/7691
-    for v in ds.data_vars:
-        if ds[v].encoding["dtype"] == "int16":
-            ds[v].encoding.clear()
-
+    ds = xr.open_dataset(request['zarr_archive_path'], chunks=chunks or {})
     return ds
 
 
 def get_data(cutout, feature, tmpdir, lock=None, **creation_parameters):
     """
-    Retrieve data from ECMWFs ERA5 dataset (via CDS).
+    Retrieve data from TZ google cloud bucket.
 
     This front-end function downloads data for a specific feature and formats
     it to match the given Cutout.
@@ -364,7 +313,7 @@ def get_data(cutout, feature, tmpdir, lock=None, **creation_parameters):
     cutout : atlite.Cutout
     feature : str
         Name of the feature data to retrieve. Must be in
-        `atlite.datasets.era5.features`
+        `atlite.datasets.era5_tz.features`
     tmpdir : str/Path
         Directory where the temporary netcdf files are stored.
     **creation_parameters :
@@ -381,11 +330,9 @@ def get_data(cutout, feature, tmpdir, lock=None, **creation_parameters):
     sanitize = creation_parameters.get("sanitize", True)
 
     retrieval_params = {
-        "product": "reanalysis-era5-single-levels",
         "area": _area(coords),
         "chunks": cutout.chunks,
         "grid": [cutout.dx, cutout.dy],
-        "tmpdir": tmpdir,
         "lock": lock,
     }
 
