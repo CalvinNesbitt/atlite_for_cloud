@@ -56,3 +56,9 @@ class CloudCutout(Cutout):
         self.data = data.sel(
             time=slice(time[0], time[1]), x=slice(x[0], x[-1]), y=slice(y[0], y[-1])
         )
+
+class CloudCutout2(Cutout):
+
+    def __init__(self, path, **cutoutparams):
+
+        super().
