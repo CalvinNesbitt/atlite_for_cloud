@@ -141,7 +141,7 @@ def get_data_influx(retrieval_params):
         variable=[
             "fdir",
             "tisr",
-            "ssrdc",
+            "ssrd",
             "ssr",
         ],
         **retrieval_params,
@@ -151,14 +151,14 @@ def get_data_influx(retrieval_params):
 
     ds = ds.rename({"fdir": "influx_direct", "tisr": "influx_toa"})
     ds["albedo"] = (
-        ((ds["ssrdc"] - ds["ssr"]) / ds["ssrdc"].where(ds["ssrdc"] != 0))
+        ((ds["ssrd"] - ds["ssr"]) / ds["ssrd"].where(ds["ssrd"] != 0))
         .fillna(0.0)
         .assign_attrs(units="(0 - 1)", long_name="Albedo")
     )
-    ds["influx_diffuse"] = (ds["ssrdc"] - ds["influx_direct"]).assign_attrs(
+    ds["influx_diffuse"] = (ds["ssrd"] - ds["influx_direct"]).assign_attrs(
         units="J m**-2", long_name="Surface diffuse solar radiation downwards"
     )
-    ds = ds.drop_vars(["ssrdc", "ssr"])
+    ds = ds.drop_vars(["ssrd", "ssr"])
 
     # Convert from energy to power J m**-2 -> W m**-2 and clip negative fluxes
     for a in ("influx_direct", "influx_diffuse", "influx_toa"):
