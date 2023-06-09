@@ -22,7 +22,7 @@ setup(
     license="MIT",
     packages=find_packages(exclude=["doc", "test"]),
     include_package_data=True,
-    python_requires=">=3.8",
+    python_requires=">=3.6",
     install_requires=[
         "numpy",
         "scipy",
@@ -42,7 +42,6 @@ setup(
         "pyproj>=2",
         "geopandas",
         "cdsapi",
-        "zarr",
         "gcsfs",
         "cloudpathlib",
     ],
