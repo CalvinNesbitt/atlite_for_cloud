@@ -1,11 +1,5 @@
-# -*- coding: utf-8 -*-
-
-# SPDX-FileCopyrightText: 2016 - 2023 The Atlite Authors
-#
-# SPDX-License-Identifier: MIT
-
 """
-Module for downloading and curating data from ECMWFs ERA5 dataset from transition zero zarr archive.
+Module for opening data from Transition Zero ERA5 Archive.
 
 For further reference see
 https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation
@@ -14,10 +8,15 @@ https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation
 import logging
 import os
 import warnings
-
 import numpy as np
 import pandas as pd
 import xarray as xr
+import zarr
+from dateutil import parser
+from gcsfs import GCSFileSystem
+from cloudpathlib import CloudPath
+import dask
+
 
 from atlite.gis import maybe_swap_spatial_dims
 from atlite.pv.solar_position import SolarPosition
@@ -40,7 +39,18 @@ logger = logging.getLogger(__name__)
 crs = 4326
 
 features = {
+    "height": ["height"],
     "wind": ["wnd100m", "wnd_azimuth", "roughness"],
+    "influx": [
+        "influx_toa",
+        "influx_direct",
+        "influx_diffuse",
+        "albedo",
+        "solar_altitude",
+        "solar_azimuth",
+    ],
+    "temperature": ["temperature", "soil temperature"],
+    "runoff": ["runoff"],
 }
 
 static_features = {"height"}
@@ -82,10 +92,10 @@ def _rename_and_clean_coords(ds, add_lon_lat=True):
 
     # Combine ERA5 and ERA5T data into a single dimension.
     # See https://github.com/PyPSA/atlite/issues/190
-    if "expver" in ds.dims.keys():
-        # expver=1 is ERA5 data, expver=5 is ERA5T data
-        # This combines both by filling in NaNs from ERA5 data with values from ERA5T.
-        ds = ds.sel(expver=1).combine_first(ds.sel(expver=5))
+    # if "expver" in ds.dims.keys():
+    #     # expver=1 is ERA5 data, expver=5 is ERA5T data
+    #     # This combines both by filling in NaNs from ERA5 data with values from ERA5T.
+    #     ds = ds.sel(expver=1).combine_first(ds.sel(expver=5))
 
     return ds
 
@@ -94,7 +104,7 @@ def get_data_wind(retrieval_params):
     """
     Get wind data for given retrieval parameters.
     """
-    ds = retrieve_data(
+    ds = retrieve_raw_data(
         variable=[
             "u100",
             "v100",
@@ -105,14 +115,13 @@ def get_data_wind(retrieval_params):
     ds = _rename_and_clean_coords(ds)
 
     ds["wnd100m"] = np.sqrt(ds["u100"] ** 2 + ds["v100"] ** 2).assign_attrs(
-        units=ds["u100"].attrs["units"], long_name="100 metre wind speed"
+        units="ms-1", long_name="100 metre wind speed"
     )
     # span the whole circle: 0 is north, π/2 is east, -π is south, 3π/2 is west
     azimuth = np.arctan2(ds["u100"], ds["v100"])
     ds["wnd_azimuth"] = azimuth.where(azimuth >= 0, azimuth + 2 * np.pi)
     ds = ds.drop_vars(["u100", "v100"])
     ds = ds.rename({"fsr": "roughness"})
-
     return ds
 
 
@@ -128,12 +137,12 @@ def get_data_influx(retrieval_params):
     """
     Get influx data for given retrieval parameters.
     """
-    ds = retrieve_data(
+    ds = retrieve_raw_data(
         variable=[
-            "surface_net_solar_radiation",
-            "surface_solar_radiation_downwards",
-            "toa_incident_solar_radiation",
-            "total_sky_direct_solar_radiation_at_surface",
+            "fdir",
+            "tisr",
+            "ssrd",
+            "ssr",
         ],
         **retrieval_params,
     )
@@ -184,9 +193,7 @@ def get_data_temperature(retrieval_params):
     """
     Get wind temperature for given retrieval parameters.
     """
-    ds = retrieve_data(
-        variable=["2m_temperature", "soil_temperature_level_4"], **retrieval_params
-    )
+    ds = retrieve_raw_data(variable=["t2m", "stl4"], **retrieval_params)
 
     ds = _rename_and_clean_coords(ds)
     ds = ds.rename({"t2m": "temperature", "stl4": "soil temperature"})
@@ -198,7 +205,7 @@ def get_data_runoff(retrieval_params):
     """
     Get runoff data for given retrieval parameters.
     """
-    ds = retrieve_data(variable=["runoff"], **retrieval_params)
+    ds = retrieve_raw_data(variable=["ro"], **retrieval_params)
 
     ds = _rename_and_clean_coords(ds)
     ds = ds.rename({"ro": "runoff"})
@@ -218,61 +225,12 @@ def get_data_height(retrieval_params):
     """
     Get height data for given retrieval parameters.
     """
-    ds = retrieve_data(variable="geopotential", **retrieval_params)
+    ds = retrieve_raw_data(variable=["z"], **retrieval_params)
 
     ds = _rename_and_clean_coords(ds)
     ds = _add_height(ds)
 
     return ds
-
-
-def _area(coords):
-    # North, West, South, East. Default: global
-    x0, x1 = coords["x"].min().item(), coords["x"].max().item()
-    y0, y1 = coords["y"].min().item(), coords["y"].max().item()
-    return [y1, x0, y0, x1]
-
-
-def retrieval_times(coords, static=False):
-    """
-    Get list of retrieval cdsapi arguments for time dimension in coordinates.
-
-    If static is False, this function creates a query for each month and year
-    in the time axis in coords. This ensures not running into size query limits
-    of the cdsapi even with very (spatially) large cutouts.
-    If static is True, the function return only one set of parameters
-    for the very first time point.
-
-    Parameters
-    ----------
-    coords : atlite.Cutout.coords
-
-    Returns
-    -------
-    list of dicts witht retrieval arguments
-    """
-    time = coords["time"].to_index()
-    if static:
-        return {
-            "year": str(time[0].year),
-            "month": str(time[0].month),
-            "day": str(time[0].day),
-            "time": time[0].strftime("%H:00"),
-        }
-
-    # Prepare request for all months and years
-    times = []
-    for year in time.year.unique():
-        t = time[time.year == year]
-        for month in t.month.unique():
-            query = {
-                "year": str(year),
-                "month": str(month),
-                "day": list(t[t.month == month].day.unique()),
-                "time": ["%02d:00" % h for h in t[t.month == month].hour.unique()],
-            }
-            times.append(query)
-    return times
 
 
 def noisy_unlink(path):
@@ -286,19 +244,44 @@ def noisy_unlink(path):
         logger.error(f"Unable to delete file {path}, as it is still in use.")
 
 
-def retrieve_data(product, chunks=None, tmpdir=None, lock=None, **updates):
-    """
-    Load data from TZ google cloud Zarr archive.
-    """
-    request = {'zarr_archive_path': 'gs://metdata-era5/atlite-wind-2013/zarr/'}
-    request.update(updates)
+def retrieve_raw_data(
+    path="gs://metdata-era5/atlite-2013/zarr",
+    use_caching=True,
+    max_cache_size=2**28,
+    **retrieval_params,
+):
+    variable = retrieval_params["variable"]
+    time = retrieval_params["time"]
+    x = retrieval_params["x"]
+    y = retrieval_params["y"]
+    path = CloudPath(str(path))
+    mapper = GCSFileSystem().get_mapper
+    store = mapper(str(path))
+    if use_caching is True:
+        cache = zarr.LRUStoreCache(store, max_size=max_cache_size)
+        ds = xr.open_zarr(store=cache, chunks={})[variable]
+    else:
+        ds = xr.open_zarr(store=store, chunks={})[variable]
 
-    assert {"year", "month", "variable"}.issubset(
-        request
-    ), "Need to specify at least 'variable', 'year' and 'month'"
+    with dask.config.set(**{"array.slicing.split_large_chunks": False}):
+        ds = ds.assign_coords(
+            longitude=(((ds.longitude + 180) % 360) - 180)
+        )  # Change coords from degrees east to west/east
+        ds = ds.sortby("longitude")
+    # Unpack bounds
+    north = max(y)
+    south = min(y)
+    west = min(x)
+    east = max(x)
+    start_time, end_time = parser.parse(str(time[0])), parser.parse(str(time[1]))
 
-    ds = xr.open_dataset(request['zarr_archive_path'], chunks=chunks or {})
-    return ds
+    # Subset data
+    region_ds = ds.sel(
+        latitude=slice(south, north),
+        longitude=slice(west, east),
+        time=slice(start_time, end_time),
+    )
+    return region_ds
 
 
 def get_data(cutout, feature, tmpdir, lock=None, **creation_parameters):
@@ -310,7 +293,7 @@ def get_data(cutout, feature, tmpdir, lock=None, **creation_parameters):
 
     Parameters
     ----------
-    cutout : atlite.Cutout
+    cutout : atlite.CloudCutout
     feature : str
         Name of the feature data to retrieve. Must be in
         `atlite.datasets.era5_tz.features`
@@ -330,26 +313,24 @@ def get_data(cutout, feature, tmpdir, lock=None, **creation_parameters):
     sanitize = creation_parameters.get("sanitize", True)
 
     retrieval_params = {
-        "area": _area(coords),
-        "chunks": cutout.chunks,
-        "grid": [cutout.dx, cutout.dy],
-        "lock": lock,
+        "x": (coords["x"].min().item(), coords["x"].max().item()),
+        "y": (coords["y"].min().item(), coords["y"].max().item()),
+        "time": (
+            str(coords["time"].min().values),
+            str(coords["time"].max().values),
+        ),
     }
 
     func = globals().get(f"get_data_{feature}")
     sanitize_func = globals().get(f"sanitize_{feature}")
 
-    logger.info(f"Requesting data for feature {feature}...")
-
-    def retrieve_once(time):
-        ds = func({**retrieval_params, **time})
+    def retrieve_once():
+        ds = func({**retrieval_params})
         if sanitize and sanitize_func is not None:
             ds = sanitize_func(ds)
         return ds
 
     if feature in static_features:
-        return retrieve_once(retrieval_times(coords, static=True)).squeeze()
+        return retrieve_once().squeeze()
 
-    datasets = map(retrieve_once, retrieval_times(coords))
-
-    return xr.concat(datasets, dim="time").sel(time=coords["time"])
+    return retrieve_once()

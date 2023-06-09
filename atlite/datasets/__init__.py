@@ -4,6 +4,6 @@
 #
 # SPDX-License-Identifier: MIT
 
-from atlite.datasets import era5, gebco, sarah
+from atlite.datasets import era5, gebco, sarah, tz_era5
 
-modules = {"era5": era5, "sarah": sarah, "gebco": gebco}
+modules = {"tz_era5": tz_era5, "era5": era5, "sarah": sarah, "gebco": gebco}
