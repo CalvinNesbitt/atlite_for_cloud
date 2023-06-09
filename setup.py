@@ -42,6 +42,9 @@ setup(
         "pyproj>=2",
         "geopandas",
         "cdsapi",
+        "zarr",
+        "gcsfs",
+        "cloudpathlib",
     ],
     extras_require={
         "docs": ["numpydoc", "sphinx", "sphinx_rtd_theme", "nbsphinx", "nbsphinx-link"],
