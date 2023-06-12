@@ -14,7 +14,7 @@ import xarray as xr
 import zarr
 from dateutil import parser
 from gcsfs import GCSFileSystem
-from cloudpathlib import CloudPath
+from cloudpathlib import CloudPath, GSClient
 import dask
 import google.auth
 
@@ -257,7 +257,8 @@ def retrieve_raw_data(
     y = retrieval_params["y"]
     credentials, project_id = google.auth.default()
     mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
-    path = CloudPath(path)
+    client = GSClient(project=project_id, credentials=credentials)
+    path = client.GSPath(path)
     store = mapper(str(path))
     if use_caching is True:
         cache = zarr.LRUStoreCache(store, max_size=max_cache_size)
