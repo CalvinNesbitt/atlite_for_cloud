@@ -44,8 +44,9 @@ class CloudCutout(Cutout):
         max_cache_size : float, default=2**28
             The maximum size that the cache may grow to, in number of bytes.
         """
+        credentials, project_id = google.auth.default()
+        mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
         path = CloudPath(path)
-        mapper = GCSFileSystem().get_mapper
         store = mapper(str(path))
         if use_caching is True:
             cache = zarr.LRUStoreCache(store, max_size=max_cache_size)
