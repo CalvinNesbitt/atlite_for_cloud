@@ -7,6 +7,8 @@ import zarr
 from gcsfs import GCSFileSystem
 import xarray as xr
 from atlite.cutout import Cutout
+import google.auth
+
 
 
 class CloudCutout(Cutout):
@@ -46,7 +48,7 @@ class CloudCutout(Cutout):
         """
         credentials, project_id = google.auth.default()
         mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
-        path = CloudPath(path, credentials=credentials, project=project_id)
+        path = CloudPath(path)
         store = mapper(str(path))
         if use_caching is True:
             cache = zarr.LRUStoreCache(store, max_size=max_cache_size)

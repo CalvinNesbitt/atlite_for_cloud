@@ -16,6 +16,7 @@ from dateutil import parser
 from gcsfs import GCSFileSystem
 from cloudpathlib import CloudPath
 import dask
+import google.auth
 
 
 from atlite.gis import maybe_swap_spatial_dims
@@ -254,8 +255,9 @@ def retrieve_raw_data(
     time = retrieval_params["time"]
     x = retrieval_params["x"]
     y = retrieval_params["y"]
-    path = CloudPath(str(path))
-    mapper = GCSFileSystem().get_mapper
+    credentials, project_id = google.auth.default()
+    mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
+    path = CloudPath(path)
     store = mapper(str(path))
     if use_caching is True:
         cache = zarr.LRUStoreCache(store, max_size=max_cache_size)
