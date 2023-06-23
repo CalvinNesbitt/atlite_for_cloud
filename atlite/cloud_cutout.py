@@ -2,13 +2,72 @@
 Example class for a Cloud based Atlite.
 """
 
-from cloudpathlib import CloudPath
-import zarr
-from gcsfs import GCSFileSystem
 import xarray as xr
 from atlite.cutout import Cutout
-import google.auth
+import logging
+from numpy import atleast_1d
+from tqdm.dask import TqdmCallback
 
+from .data import available_features, get_features, non_bool_dict
+
+logger = logging.getLogger(__name__)
+
+
+def cloud_cutout_prepare(
+    cutout,
+    features=None,
+):
+    """
+    Prepare all or a selection of features in a cloud based cutout.
+
+    This function loads the feature data of a cutout, e.g. influx or runoff.
+    When not specifying the `feature` argument, all available features will be
+    loaded. The function compares the variables which are already included in
+    the cutout with the available variables of the modules specified by the
+    cutout. It detects missing variables and stores them into the netcdf file
+    of the cutout.
+
+
+    Parameters
+    ----------
+    cutout : atlite.CloudCutout
+    features : str/list, optional
+        Feature(s) to be prepared. The default slice(None) results in all
+        available features.
+
+    Returns
+    -------
+    cutout : atlite.CloudCutout
+        Cloud cutout with prepared data. The variables are stored in `cutout.data`.
+    """
+    if cutout.prepared:
+        logger.info("Cutout already prepared.")
+        return cutout
+
+    modules = atleast_1d(cutout.module)
+    features = atleast_1d(features) if features else slice(None)
+    prepared = set(atleast_1d(cutout.data.attrs["prepared_features"]))
+
+    # target is series of all available variables for given module and features
+    target = available_features(modules).loc[:, features].drop_duplicates()
+
+    for module in target.index.unique("module"):
+        missing_vars = target[module]
+        if missing_vars.empty:
+            continue
+        logger.info(f"Calculating with module {module}:")
+        missing_features = missing_vars.index.unique("feature")
+        ds = get_features(cutout, module, missing_features)
+        prepared |= set(missing_features)
+
+        cutout.data.attrs.update(dict(prepared_features=list(prepared)))
+        attrs = non_bool_dict(cutout.data.attrs)
+        attrs.update(ds.attrs)
+
+        ds = cutout.data.merge(ds[missing_vars.values]).assign_attrs(**attrs)
+        cutout.data = ds
+
+    return cutout
 
 
 class CloudCutout(Cutout):
@@ -16,52 +75,21 @@ class CloudCutout(Cutout):
     Atlite style cutout that is underpinned by zarr archive on cloud rather than local data.
     """
 
-    def __init__(
-        self,
-        path,
-        time=(None, None),
-        x=(None, None),
-        y=(None, None),
-        use_caching=False,
-        max_cache_size=2**28,
-    ):
+    prepare = cloud_cutout_prepare
+
+    def write_netcdf_locally(self, path):
         """
-        Provide an Atlite style cutout that where the data is hosted on the cloud.
+        Write the cutout to a local netcdf file.
 
         Parameters
         ----------
-        path : str | path-like
-            Zarr archive from which to load the cutout.
-            This will contain raw met data, rather than prepared atlite-style data.
-        time : str | slice
-            Time range to include in the cutout, e.g. "2011" or
-            ("2011-01-05", "2011-01-25")
-            This is necessary when building a new cutout.
-        x : slice, optional
-            Outer longitudinal bounds for the cutout (west, east).
-        y : slice, optional
-            Outer latitudinal bounds for the cutout (south, north).
-        use_caching : bool, default=False
-            Whether to use an in memory cache cloud data.
-        max_cache_size : float, default=2**28
-            The maximum size that the cache may grow to, in number of bytes.
+        path : str/Path
+            Path to the netcdf file.
         """
-        credentials, project_id = google.auth.default()
-        mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
-        path = CloudPath(path)
-        store = mapper(str(path))
-        if use_caching is True:
-            cache = zarr.LRUStoreCache(store, max_size=max_cache_size)
-            data = xr.open_zarr(store=cache, chunks={})
-        else:
-            data = xr.open_zarr(store=store, chunks={})
         self.path = path
-        self.data = data.sel(
-            time=slice(time[0], time[1]), x=slice(x[0], x[-1]), y=slice(y[0], y[-1])
-        )
+        logger.info(f"Writing cutout to {path}")
+        write_job = self.data.to_netcdf(path, compute=False)
+        with TqdmCallback(desc="compute"):
+            write_job.compute()
 
-class CloudCutout2(Cutout):
-
-    def __init__(self, path, **cutoutparams):
-
-        super().
+        self.data = xr.open_dataset(self.path, chunks={})
