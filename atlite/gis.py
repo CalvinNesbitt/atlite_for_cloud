@@ -475,6 +475,7 @@ def shape_availability(geometry, excluder):
         if d["invert"]:
             masked_ = ~masked_
         if d["buffer"]:
+            print(d["buffer"], print(excluder.res))
             iterations = int(d["buffer"] / excluder.res) + 1
             masked_ = dilation(masked_, iterations=iterations)
 

@@ -77,7 +77,7 @@ class CloudCutout(Cutout):
 
     prepare = cloud_cutout_prepare
 
-    def write_netcdf_locally(self, path):
+    def write_netcdf_locally(self, path=None):
         """
         Write the cutout to a local netcdf file.
 
@@ -86,7 +86,8 @@ class CloudCutout(Cutout):
         path : str/Path
             Path to the netcdf file.
         """
-        self.path = path
+        if path is None:
+            path = self.path
         logger.info(f"Writing cutout to {path}")
         write_job = self.data.to_netcdf(path, compute=False)
         with TqdmCallback(desc="compute"):
