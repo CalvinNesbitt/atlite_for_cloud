@@ -17,9 +17,9 @@ from tempfile import mkdtemp, mkstemp
 import pandas as pd
 import xarray as xr
 from dask import compute, delayed
-from dask.diagnostics import ProgressBar
 from dask.utils import SerializableLock
 from numpy import atleast_1d
+from tqdm.dask import TqdmCallback
 
 logger = logging.getLogger(__name__)
 
@@ -198,8 +198,9 @@ def cutout_prepare(
         logger.debug("Writing cutout to file...")
         # Delayed writing for large cutout
         # cf. https://stackoverflow.com/questions/69810367/python-how-to-write-large-netcdf-with-xarray
+
         write_job = ds.to_netcdf(tmp, compute=False)
-        with ProgressBar():
+        with TqdmCallback(desc="compute"):
             write_job.compute()
         if cutout.path.exists():
             cutout.data.close()

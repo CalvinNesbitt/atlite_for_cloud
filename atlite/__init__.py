@@ -14,6 +14,7 @@ resource requirements especially on CPU and RAM resources low.
 """
 
 from atlite.cutout import Cutout
+from atlite.cloud_cutout import CloudCutout
 from atlite.gis import ExclusionContainer, compute_indicatormatrix, regrid
 from atlite.resource import cspinstallations, solarpanels, windturbines
 from atlite.version import version as __version__
