@@ -269,6 +269,10 @@ def retrieve_raw_data(
     y = retrieval_params["y"]
     mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
     client = GSClient(project=project_id, credentials=credentials)
+
+    # Temporary fix until we make more complete archive
+    if parser.parse(str(time[0])).year == 2018:
+        path = path.replace("atlite-2013", "atlite-2018")
     path = client.GSPath(path)
     store = mapper(str(path))
     if use_caching is True:
@@ -288,6 +292,14 @@ def retrieve_raw_data(
     west = min(x)
     east = max(x)
     start_time, end_time = parser.parse(str(time[0])), parser.parse(str(time[1]))
+
+    # Temporary fix until we make more complete archive: Ensuring start/end time is in 2013 or 2018
+    if start_time.year != 2013 and start_time.year != 2018:
+        raise ValueError(f"Start time year must be 2013 or 2018, not {start_time.year}")
+    if end_time.year != 2013 and end_time.year != 2018:
+        raise ValueError(f"End time year must be 2013 or 2018, not {end_time.year}")
+    if start_time.year != end_time.year:
+        raise ValueError("Start and end time must be in same year, either 2013 or 2018")
 
     # Subset data
     region_ds = ds.sel(
