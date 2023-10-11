@@ -264,10 +264,6 @@ def retrieve_raw_data(
             )
 
     except KeyError:
-        warnings.warn(
-            "No Google Cloud credentials found in environment variables. "
-            "Will try using default credentials instead."
-        )
         credentials, project_id = google.auth.default()
 
     mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
