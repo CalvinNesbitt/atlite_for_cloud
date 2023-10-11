@@ -56,18 +56,6 @@ features = {
 
 static_features = {"height"}
 
-# Loading Credentials for Google Cloud from env variables if available, otherwise
-# from default credentials
-
-try:
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
-except KeyError:
-    warnings.warn(
-        "No Google Cloud credentials found in environment variables. "
-        "Will try using default credentials instead."
-    )
-    credentials, project_id = google.auth.default()
-
 
 def _add_height(ds):
     """
@@ -267,6 +255,21 @@ def retrieve_raw_data(
     time = retrieval_params["time"]
     x = retrieval_params["x"]
     y = retrieval_params["y"]
+
+    try:
+        if os.environ["GOOGLE_APPLICATION_CREDENTIALS"] is not None:
+            # Load credentials from env variables
+            credentials, project_id = google.auth.load_credentials_from_file(
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+            )
+
+    except KeyError:
+        warnings.warn(
+            "No Google Cloud credentials found in environment variables. "
+            "Will try using default credentials instead."
+        )
+        credentials, project_id = google.auth.default()
+
     mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
     client = GSClient(project=project_id, credentials=credentials)
 
