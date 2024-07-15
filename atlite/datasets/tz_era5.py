@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+
+# SPDX-FileCopyrightText: 2016 - 2024 The Atlite Authors & Calvin Nesbitt
+#
+# SPDX-License-Identifier: MIT
 """
 Module for opening data from Transition Zero ERA5 Archive.
 
@@ -8,16 +13,16 @@ https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation
 import logging
 import os
 import warnings
+
+import dask
+import google.auth
 import numpy as np
 import pandas as pd
 import xarray as xr
 import zarr
+from cloudpathlib import GSClient
 from dateutil import parser
 from gcsfs import GCSFileSystem
-from cloudpathlib import CloudPath, GSClient
-import dask
-import google.auth
-
 
 from atlite.gis import maybe_swap_spatial_dims
 from atlite.pv.solar_position import SolarPosition

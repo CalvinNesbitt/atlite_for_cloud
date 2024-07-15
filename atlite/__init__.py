@@ -13,11 +13,24 @@ to by lightweight and work with big weather datasets while keeping the
 resource requirements especially on CPU and RAM resources low.
 """
 
-from atlite.cutout import Cutout
 from atlite.cloud_cutout import CloudCutout
+from atlite.cutout import Cutout
 from atlite.gis import ExclusionContainer, compute_indicatormatrix, regrid
 from atlite.resource import cspinstallations, solarpanels, windturbines
 from atlite.version import version as __version__
+
+__all__ = [
+    "Cutout",
+    "CloudCutout",
+    "ExclusionContainer",
+    "compute_indicatormatrix",
+    "regrid",
+    "cspinstallations",
+    "solarpanels",
+    "windturbines",
+]
+
+__version__ = __version__
 
 __author__ = (
     "The Atlite Authors: Gorm Andresen (Aarhus University), "

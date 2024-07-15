@@ -601,6 +601,7 @@ def compute_availabilitymatrix(
         unit=" gridcells",
         total=len(shapes),
         desc="Compute availability matrix",
+        disable_progressbar=True,
     )
     if nprocesses is None:
         with catch_warnings():

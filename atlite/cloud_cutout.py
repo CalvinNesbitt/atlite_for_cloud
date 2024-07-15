@@ -1,14 +1,20 @@
+# -*- coding: utf-8 -*-
+
+# SPDX-FileCopyrightText: 2016 - 2024 The Atlite Authors & Calvin Nesbitt
+#
+# SPDX-License-Identifier: MIT
 """
 Example class for a Cloud based Atlite.
 """
 
-import xarray as xr
-from atlite.cutout import Cutout
 import logging
+
+import xarray as xr
 from numpy import atleast_1d
 from tqdm.dask import TqdmCallback
 
-from .data import available_features, get_features, non_bool_dict
+from atlite.cutout import Cutout
+from atlite.data import available_features, get_features, non_bool_dict
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +78,8 @@ def cloud_cutout_prepare(
 
 class CloudCutout(Cutout):
     """
-    Atlite style cutout that is underpinned by zarr archive on cloud rather than local data.
+    Atlite style cutout that is underpinned by zarr archive on cloud rather
+    than local data.
     """
 
     prepare = cloud_cutout_prepare
