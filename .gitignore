@@ -23,6 +23,8 @@ atlite/version.py
 paper
 .coverage*
 !.coveragerc
-
+.env
+*.DS_Store
+env.sh
 # Ignore PyCharm / JetBrains IDE project files
 .idea/

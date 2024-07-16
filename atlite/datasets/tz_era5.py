@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+
+# SPDX-FileCopyrightText: 2016 - 2024 The Atlite Authors & Calvin Nesbitt
+#
+# SPDX-License-Identifier: MIT
 """
 Module for opening data from Transition Zero ERA5 Archive.
 
@@ -8,19 +13,27 @@ https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation
 import logging
 import os
 import warnings
+
+import dask
+import google.auth
 import numpy as np
 import pandas as pd
 import xarray as xr
 import zarr
+from cloudpathlib import GSClient
 from dateutil import parser
 from gcsfs import GCSFileSystem
-from cloudpathlib import CloudPath, GSClient
-import dask
-import google.auth
-
 
 from atlite.gis import maybe_swap_spatial_dims
 from atlite.pv.solar_position import SolarPosition
+
+WEATHER_YEAR_PATHS = {
+    2013: "/atlite-2013",
+    2018: "/atlite-2018",
+    2019: "/era5-atlite-archive",
+    2023: "/era5-atlite-archive",
+}
+COMPLETE_WEATHER_YEARS = list(WEATHER_YEAR_PATHS.keys())
 
 # Null context for running a with statements wihout any context
 try:
@@ -246,7 +259,6 @@ def noisy_unlink(path):
 
 
 def retrieve_raw_data(
-    path="gs://metdata-era5/atlite-2013/zarr",
     use_caching=True,
     max_cache_size=2**28,
     **retrieval_params,
@@ -255,6 +267,21 @@ def retrieve_raw_data(
     time = retrieval_params["time"]
     x = retrieval_params["x"]
     y = retrieval_params["y"]
+
+    # Check if year is in the list of complete weather years
+    requested_start_year = parser.parse(str(time[0])).year
+    requested_end_year = parser.parse(str(time[1])).year
+
+    if requested_start_year not in COMPLETE_WEATHER_YEARS:
+        raise ValueError(
+            f"For module=tz_era5, start year must be in {COMPLETE_WEATHER_YEARS}."
+        )
+    if requested_end_year not in COMPLETE_WEATHER_YEARS:
+        raise ValueError(
+            f"For module=tz_era5, end year must be in {COMPLETE_WEATHER_YEARS}."
+        )
+    if requested_start_year != requested_end_year:
+        raise ValueError("Start and end time must be in same year.")
 
     try:
         if os.environ["GOOGLE_APPLICATION_CREDENTIALS"] is not None:
@@ -269,11 +296,11 @@ def retrieve_raw_data(
     mapper = GCSFileSystem(project=project_id, credentials=credentials).get_mapper
     client = GSClient(project=project_id, credentials=credentials)
 
-    # Temporary fix until we make more complete archive
-    if parser.parse(str(time[0])).year == 2018:
-        path = path.replace("atlite-2013", "atlite-2018")
-    path = client.GSPath(path)
-    store = mapper(str(path))
+    weather_year_path = (
+        f"gs://metdata-era5{WEATHER_YEAR_PATHS[requested_start_year]}/zarr"
+    )
+    weather_year_path = client.GSPath(weather_year_path)
+    store = mapper(str(weather_year_path))
     if use_caching is True:
         cache = zarr.LRUStoreCache(store, max_size=max_cache_size)
         ds = xr.open_zarr(store=cache, chunks={})[variable]
@@ -291,14 +318,6 @@ def retrieve_raw_data(
     west = min(x)
     east = max(x)
     start_time, end_time = parser.parse(str(time[0])), parser.parse(str(time[1]))
-
-    # Temporary fix until we make more complete archive: Ensuring start/end time is in 2013 or 2018
-    if start_time.year != 2013 and start_time.year != 2018:
-        raise ValueError(f"Start time year must be 2013 or 2018, not {start_time.year}")
-    if end_time.year != 2013 and end_time.year != 2018:
-        raise ValueError(f"End time year must be 2013 or 2018, not {end_time.year}")
-    if start_time.year != end_time.year:
-        raise ValueError("Start and end time must be in same year, either 2013 or 2018")
 
     # Subset data
     region_ds = ds.sel(
